@@ -14,27 +14,46 @@ unsigned int dict_size = 0;
 // global boolean for tracking load/unload dictionary operations
 bool loaded = false;
 
-// define the node in the linked list
+// define the node in tries
 typedef struct node
 {
-    char word[LENGTH+1];
-    struct node *next;
+    bool end_of_word;
+    struct node *children[MAX+1]; //defines an array of the specified size and each element in the array is a pointer to a node
 }
 node;
 
-// declare the hashtable, i.e. an array of pointer to the starting node of the linked list
-// here MAX is the number of alphabets
-node *ptr[MAX];
+typedef struct node *node_ptr;
 
-int hash_function(const char *input)
+int hash_function(const char letter)
 {
-    unsigned long hash = 5381;
-    int c;
-    while ((c = *input++))
-        hash = ((hash << 5) + hash) + c; /* hash * 33 + c */
-
-    return hash % MAX;
+    if (letter == '\'')
+    {
+    return MAX;
+    }
+    else
+    {
+        return tolower(letter)-97;
+    }
 }
+
+node_ptr create_node(void)
+{
+    node *new_node = malloc(sizeof(node));
+    if (new_node == NULL)
+    {
+        printf("Error when allocating memory for the node.");
+        return NULL;
+    }
+    for (int i = 0; i< MAX; i++)
+    {
+        new_node->children[i] = NULL;
+    }
+    new_node->end_of_word = false;
+
+    return new_node;
+}
+
+node_ptr root = NULL;
 
 // Loads dictionary into memory, returning true if successful else false
 bool load(const char *dictionary)
@@ -46,38 +65,34 @@ bool load(const char *dictionary)
         return false;
     }
 
-    // make all hash table elements NULL
-    for (int i = 0; i < MAX; i++)
-    {
-        ptr[i] = NULL;
-    }
+    root = create_node();
+
     while (!feof(file))
     {
-        node *new_node = malloc(sizeof(node)); // allocate memory for the new words (node)
-        if (new_node == NULL)
-        {
-            printf("Could not allocate memory for the node.");
-            loaded = false;
-            return loaded;
-        }
-        fscanf(file, "%s", new_node->word);
-        new_node->next = NULL;
+        char word[LENGTH];
+        fscanf(file, "%s", word);
         dict_size++;
+        node *ptr;
+        ptr = root;
 
-        int hashed = hash_function(new_node->word);
-
-        node *head;
-        head = ptr[hashed]; //take out the pointer at the location of the array
-
-        if(head == NULL) // the bucket is empty for this entry, we can put our new word into it
+        for (int j = 0; j < strlen(word); j++)
         {
-            ptr[hashed] = new_node;
+            int hashed = hash_function(word[j]);
+            if (ptr->children[hashed] == NULL)
+            {
+                node_ptr new_node = create_node();
+                ptr->children[hashed] = new_node;
+            }
+
+            ptr = ptr->children[hashed];
+
+            if (ptr == NULL)
+            {
+                printf("Cannot allocate memory for a new node");
+                return false;
+            }
         }
-        else
-        {// there is a pointer pointing to some node already, we'll link the new node to the front of the list
-            new_node->next = head;
-            ptr[hashed] = new_node;
-        }
+        ptr->end_of_word = true;
     }
 
     fclose(file);
@@ -88,30 +103,20 @@ bool load(const char *dictionary)
 // Returns true if word is in dictionary else false
 bool check(const char *word)
 {
-    int word_length = strlen(word);
-    char word_normal[word_length+1];
-    for (int i = 0; i< word_length; i++)
+    node *ptr = root;
+    for(int i = 0; i < strlen(word); i++)
     {
-        word_normal[i]= tolower(word[i]);
-    }
-    word_normal[word_length] = '\0';
-
-    int hashed = hash_function(word_normal);
-
-    node *head;
-    head = ptr[hashed];
-    while(head != NULL)
-    {
-        if(strcmp(head->word, word_normal) == 0)
+        int hashed = hash_function(word[i]);
+        if(ptr->children[hashed] == NULL)
         {
-            return true;
+            return false;
         }
         else
         {
-            head = head->next;
+            ptr = ptr->children[hashed];
         }
     }
-    return false;
+    return ptr->end_of_word;
 }
 
 
@@ -128,23 +133,24 @@ unsigned int size(void)
     }
 
 }
+bool trie_free(node *ptr)
+{
+    if (ptr == NULL)
+    {
+        return false;
+    }
+
+    for (int i = 0; i < MAX; i++)
+    {
+        trie_free(ptr->children[i]);
+    }
+
+    free(ptr);
+    return true;
+}
 
 // Unloads dictionary from memory, returning true if successful else false
 bool unload(void)
 {
-    for(int i=0;i<MAX; i++)
-    {
-        node* head;
-        head = ptr[i];
-        while(head != NULL)
-        {
-            node* temp;
-            temp = head;
-            head = head->next;
-            free(temp);
-
-        }
-        return true;
-    }
-    return false;
+    return trie_free(root);
 }
